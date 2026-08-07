@@ -1,0 +1,1 @@
+for dir in landing_* launching_* shuffle_*; do   ffmpeg -y -framerate 24 -pattern_type glob -i "${dir}/*.png" -pix_fmt yuv420p "${dir}.mp4"; done
