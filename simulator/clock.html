@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+body {
+    background-color: black;
+    margin: 0;
+}
+.title{
+    text-align: center;
+    color: white;
+}
+.container {
+  display: flex;
+  background-color: #00410A;
+  width: 90%;
+  max-width: 900px;
+  margin: 0 auto;
+}
+.page {
+  display: flex;
+  flex-direction: column;
+}
+.digitImg{
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+.button-container{
+  display: flex;
+  background-color: #c2a111;
+  gap: 15;
+  min-height: 50px;
+  margin: 0 auto;
+}
+</style>
+</head>
+<body>
+<div class="page">
+    <h1 class="title">Web Clock Sim</h1>
+    <h1 class="title"><span id="time"></span></h1>
+
+    <div class="container">
+    <div id="dig_1">
+        <img class="digitImg" src="../images/0015.png">
+    </div>
+    <div id="dig_2">
+        <img class="digitImg" src="../images/0015.png">
+    </div>
+    <div id="colon">
+        <img class="digitImg" src="../images/colon.png">
+    </div>
+    <div id="dig_3">
+        <img class="digitImg" src="../images/0015.png">
+    </div>
+    <div id="dig_4">
+        <img class="digitImg" src="../images/0015.png">
+    </div>
+    </div>
+
+    <div class="button-container">
+        <button>SHAKE ME</button>
+        <button>TOUCH ME</button>
+    </div>
+</div>
+
+
+</body>
+</html>
+<script>
+const MAP_SEQNS = {
+    landing_1:  { start: 1,   end: 15 },
+    launching_1:{ start: 15,  end: 45 },
+
+    landing_2:  { start: 45,  end: 60 },
+    launching_2:{ start: 60,  end: 90 },
+
+    landing_3:  { start: 90,  end: 105 },
+    launching_3:{ start: 105, end: 135 },
+
+    landing_4:  { start: 135, end: 150 },
+    launching_4:{ start: 150, end: 180 },
+
+    landing_5:  { start: 180, end: 195 },
+    launching_5:{ start: 195, end: 225 },
+
+    landing_6:  { start: 225, end: 240 },
+    launching_6:{ start: 240, end: 270 },
+
+    landing_7:  { start: 270, end: 285 },
+    launching_7:{ start: 285, end: 315 },
+
+    landing_8:  { start: 315, end: 330 },
+    launching_8:{ start: 330, end: 360 },
+
+    landing_9:  { start: 360, end: 375 },
+    launching_9:{ start: 375, end: 405 },
+
+    landing_0:  { start: 405, end: 420 },
+    launching_0:{ start: 420, end: 450 },
+
+    shuffle_1:  { start: 450, end: 480 },
+    shuffle_2:  { start: 480, end: 510 }
+};
+
+
+const timestep = 1000 / 60;
+const maxFPS = 60;
+
+let delta = 0;
+let lastFrameTimeMs = 0;
+
+// displayedValue = the number currently shown on the face
+// targetValue    = the number we're trying to show
+//
+// phase:
+//   idle       -> sitting on a number
+//   launching  -> moving from displayedValue into the air
+//   landing    -> moving from the air onto targetValue
+//
+// frame = the exact frame currently being rendered
+
+const getSequence = (name) => {
+    return MAP_SEQNS[name];
+};
+
+const getFaceFrame = (value) => {
+    return getSequence(`landing_${value}`).end;
+};
+
+const getAirFrame = (value) => {
+    return getSequence(`launching_${value}`).end;
+};
+
+const createDigitState = () => {
+    const initialValue = 0;
+
+    return {
+        displayedValue: initialValue,
+        targetValue: initialValue,
+
+        seqName: null,
+        frame: getFaceFrame(initialValue),
+
+        phase: 'idle',
+    };
+};
+
+const digitState = {
+    dig_1: createDigitState(),
+    dig_2: createDigitState(),
+    dig_3: createDigitState(),
+    dig_4: createDigitState(),
+};
+
+const setDigitTarget = (id, value) => {
+    const state = digitState[id];
+
+    if (state.displayedValue === value) {
+        return;
+    }
+
+    if (state.targetValue === value && state.phase !== 'idle') {
+        return;
+    }
+
+    state.targetValue = value;
+
+    state.seqName = `launching_${state.displayedValue}`;
+    state.frame = getSequence(state.seqName).start;
+    state.phase = 'launching';
+};
+
+const updateDigit = (state) => {
+    if (state.phase === 'idle') {
+        return;
+    }
+
+    const sequence = getSequence(state.seqName);
+
+    // Advance through the current sequence.
+    if (state.frame < sequence.end) {
+        state.frame++;
+        return;
+    }
+
+    if (state.phase === 'launching') {
+        state.seqName = `landing_${state.targetValue}`;
+        state.frame = getSequence(state.seqName).start;
+        state.phase = 'landing';
+        return;
+    }
+
+    if (state.phase === 'landing') {
+        state.displayedValue = state.targetValue;
+        state.frame = getFaceFrame(state.targetValue);
+        state.seqName = null;
+        state.phase = 'idle';
+    }
+};
+
+const update = () => {
+    for (const id in digitState) {
+        updateDigit(digitState[id]);
+    }
+};
+
+const padFrame = (frame) => {
+    return String(frame).padStart(4, '0');
+};
+
+const renderDigit = (id) => {
+    const state = digitState[id];
+    const img = document.querySelector(`#${id} .digitImg`);
+
+    img.src = `../images/${padFrame(state.frame)}.png`;
+};
+
+const getTime = () => {
+    return new Date()
+        .toLocaleString('en-US', { hour12: true })
+        .slice(9, 25);
+};
+
+const parseTimeToDigits = (time) => {
+    return time.split('').map(char => char === ' ' ? 0 : Number(char));
+};
+
+const displayPositions = (dig0, dig1, dig2, dig3) => {
+    setDigitTarget('dig_1', dig0);
+    setDigitTarget('dig_2', dig1);
+    setDigitTarget('dig_3', dig2);
+    setDigitTarget('dig_4', dig3);
+};
+
+const draw = () => {
+    const time = getTime();
+
+    const [dig0, dig1, , dig2, dig3] = parseTimeToDigits(time);
+
+    displayPositions(dig0, dig1, dig2, dig3);
+
+    document.getElementById('time').innerHTML = time;
+
+    for (const id of ['dig_1', 'dig_2', 'dig_3', 'dig_4']) {
+        renderDigit(id);
+    }
+};
+
+const mainLoop = (timestamp) => {
+    if (timestamp < lastFrameTimeMs + (1000 / maxFPS)) {
+        requestAnimationFrame(mainLoop);
+        return;
+    }
+
+    delta += timestamp - lastFrameTimeMs;
+    lastFrameTimeMs = timestamp;
+
+    let numUpdateSteps = 0;
+
+    while (delta >= timestep) {
+        update();
+        delta -= timestep;
+
+        if (++numUpdateSteps >= 240) {
+            break;
+        }
+    }
+
+    draw();
+
+    requestAnimationFrame(mainLoop);
+};
+
+
+requestAnimationFrame(mainLoop);
+</script>
