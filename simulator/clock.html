@@ -33,6 +33,9 @@ body {
   min-height: 50px;
   margin: 0 auto;
 }
+#shakeMe.active {
+  background-color: #8a7300;
+}
 </style>
 </head>
 <body>
@@ -59,7 +62,7 @@ body {
     </div>
 
     <div class="button-container">
-        <button>SHAKE ME</button>
+        <button id="shakeMe">SHAKE ME</button>
         <button>TOUCH ME</button>
     </div>
 </div>
@@ -110,6 +113,11 @@ const maxFPS = 60;
 let delta = 0;
 let lastFrameTimeMs = 0;
 
+// Whether the shuffle button is currently being held down.
+// While true, draw() stops syncing digits to the real clock time so the
+// shuffle animation isn't interrupted every frame.
+let isShuffling = false;
+
 // displayedValue = the number currently shown on the face
 // targetValue    = the number we're trying to show
 //
@@ -117,6 +125,7 @@ let lastFrameTimeMs = 0;
 //   idle       -> sitting on a number
 //   launching  -> moving from displayedValue into the air
 //   landing    -> moving from the air onto targetValue
+//   shuffling  -> looping in the air while the shake button is held
 //
 // frame = the exact frame currently being rendered
 
@@ -171,7 +180,15 @@ const setDigitTarget = (id, value) => {
     state.phase = 'launching';
 };
 
-const updateDigit = (state) => {
+// Send a digit into the air on its way to landing on `targetVal`.
+const beginLanding = (state, targetVal) => {
+    state.targetValue = targetVal;
+    state.seqName = `landing_${targetVal}`;
+    state.frame = getSequence(state.seqName).start;
+    state.phase = 'landing';
+};
+
+const updateDigit = (id, state) => {
     if (state.phase === 'idle') {
         return;
     }
@@ -185,9 +202,29 @@ const updateDigit = (state) => {
     }
 
     if (state.phase === 'launching') {
-        state.seqName = `landing_${state.targetValue}`;
+        if (isShuffling) {
+            // Button is still held once the launch finishes -> start looping.
+            state.seqName = pickRandomShuffleSeq();
+            state.frame = getSequence(state.seqName).start;
+            state.phase = 'shuffling';
+        } else {
+            // Button was already released by the time the launch finished
+            // (e.g. a quick tap) -> go straight to landing on the real digit.
+            beginLanding(state, getCurrentTimeDigits()[id]);
+        }
+        return;
+    }
+
+    if (state.phase === 'shuffling') {
+        if (!isShuffling) {
+            // Button released -> land on the real current time digit.
+            beginLanding(state, getCurrentTimeDigits()[id]);
+            return;
+        }
+
+        // Still held -> keep looping through the shuffle sequences.
+        state.seqName = pickRandomShuffleSeq();
         state.frame = getSequence(state.seqName).start;
-        state.phase = 'landing';
         return;
     }
 
@@ -196,12 +233,21 @@ const updateDigit = (state) => {
         state.frame = getFaceFrame(state.targetValue);
         state.seqName = null;
         state.phase = 'idle';
+
+        if (isShuffling) {
+            // A normal clock-tick landing just finished while the button
+            // is still held (rare timing edge case) - go straight into
+            // the shuffle loop instead of sitting idle.
+            state.seqName = `launching_${state.displayedValue}`;
+            state.frame = getSequence(state.seqName).start;
+            state.phase = 'launching';
+        }
     }
 };
 
 const update = () => {
     for (const id in digitState) {
-        updateDigit(digitState[id]);
+        updateDigit(id, digitState[id]);
     }
 };
 
@@ -233,14 +279,60 @@ const displayPositions = (dig0, dig1, dig2, dig3) => {
     setDigitTarget('dig_4', dig3);
 };
 
-const draw = () => {
+// Maps each digit id to the value it should actually be showing right now.
+const getCurrentTimeDigits = () => {
     const time = getTime();
-
     const [dig0, dig1, , dig2, dig3] = parseTimeToDigits(time);
 
-    displayPositions(dig0, dig1, dig2, dig3);
+    return { dig_1: dig0, dig_2: dig1, dig_3: dig2, dig_4: dig3 };
+};
 
+// Randomly choose one of the two shuffle sequences.
+const pickRandomShuffleSeq = () => {
+    return Math.random() < 0.5 ? 'shuffle_1' : 'shuffle_2';
+};
+
+// Send every digit up through its launch animation. Once each digit's
+// launch finishes, updateDigit() checks isShuffling and drops it into the
+// shuffle loop (or straight to landing, if the button was already released).
+const startShuffle = () => {
+    if (isShuffling) {
+        return;
+    }
+
+    isShuffling = true;
+
+    for (const id in digitState) {
+        const state = digitState[id];
+
+        if (state.phase === 'idle') {
+            state.seqName = `launching_${state.displayedValue}`;
+            state.frame = getSequence(state.seqName).start;
+            state.phase = 'launching';
+        }
+        // If a digit is already mid-animation (e.g. a normal clock tick was
+        // playing when the button was pressed), just leave it running -
+        // updateDigit() will pick it up into the shuffle once it's done.
+    }
+};
+
+// Just flip the flag off. updateDigit() sees this on each digit's next
+// check and lands it on the real current time value once its current
+// launch/shuffle segment finishes - no need to touch state here directly.
+const stopShuffle = () => {
+    isShuffling = false;
+};
+
+const draw = () => {
+    const time = getTime();
     document.getElementById('time').innerHTML = time;
+
+    // Only sync digits to the real time while we're not mid-shuffle, so
+    // holding the button doesn't get fought over by the clock tick.
+    if (!isShuffling) {
+        const [dig0, dig1, , dig2, dig3] = parseTimeToDigits(time);
+        displayPositions(dig0, dig1, dig2, dig3);
+    }
 
     for (const id of ['dig_1', 'dig_2', 'dig_3', 'dig_4']) {
         renderDigit(id);
@@ -274,4 +366,38 @@ const mainLoop = (timestamp) => {
 
 
 requestAnimationFrame(mainLoop);
+
+const shakeButton = document.getElementById("shakeMe");
+
+// Mouse (desktop)
+shakeButton.addEventListener("mousedown", () => {
+    shakeButton.classList.add('active');
+    startShuffle();
+});
+shakeButton.addEventListener("mouseup", () => {
+    shakeButton.classList.remove('active');
+    stopShuffle();
+});
+// Stop shuffling if the cursor drags off the button while still held down.
+shakeButton.addEventListener("mouseleave", () => {
+    shakeButton.classList.remove('active');
+    stopShuffle();
+});
+
+// Touch (mobile)
+shakeButton.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    shakeButton.classList.add('active');
+    startShuffle();
+});
+shakeButton.addEventListener("touchend", (e) => {
+    e.preventDefault();
+    shakeButton.classList.remove('active');
+    stopShuffle();
+});
+shakeButton.addEventListener("touchcancel", () => {
+    shakeButton.classList.remove('active');
+    stopShuffle();
+});
+
 </script>

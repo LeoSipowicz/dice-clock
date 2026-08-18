@@ -1,0 +1,27 @@
+# ESP32 LED TEST
+====================================================
+
+WIRING
+
+GPIO 4 → resistor → long LED leg
+short LED leg → GND
+
+LOAD
+
+1. Plug USB-C into the USB port.
+
+2. Build:
+   ~/.platformio/penv/bin/pio run -e led-test
+
+3. Hold BOOT, press RST, release BOOT.
+
+4. Upload:
+   ~/.platformio/penv/bin/pio run -e led-test -t upload
+
+5. Press RST.
+
+The LED should blink.
+
+SERIAL
+
+~/.platformio/penv/bin/pio device monitor -e led-test
