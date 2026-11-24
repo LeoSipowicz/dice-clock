@@ -42,7 +42,6 @@ body {
 <div class="page">
     <h1 class="title">Web Clock Sim</h1>
     <h1 class="title"><span id="time"></span></h1>
-
     <div class="container">
     <div id="dig_1">
         <img class="digitImg" src="../images/0015.png">
@@ -60,316 +59,210 @@ body {
         <img class="digitImg" src="../images/0015.png">
     </div>
     </div>
-
     <div class="button-container">
         <button id="shakeMe">SHAKE ME</button>
         <button>TOUCH ME</button>
     </div>
 </div>
-
-
 </body>
 </html>
 <script>
 const MAP_SEQNS = {
     landing_1:  { start: 1,   end: 15 },
     launching_1:{ start: 15,  end: 45 },
-
     landing_2:  { start: 45,  end: 60 },
     launching_2:{ start: 60,  end: 90 },
-
     landing_3:  { start: 90,  end: 105 },
     launching_3:{ start: 105, end: 135 },
-
     landing_4:  { start: 135, end: 150 },
     launching_4:{ start: 150, end: 180 },
-
     landing_5:  { start: 180, end: 195 },
     launching_5:{ start: 195, end: 225 },
-
     landing_6:  { start: 225, end: 240 },
     launching_6:{ start: 240, end: 270 },
-
     landing_7:  { start: 270, end: 285 },
     launching_7:{ start: 285, end: 315 },
-
     landing_8:  { start: 315, end: 330 },
     launching_8:{ start: 330, end: 360 },
-
     landing_9:  { start: 360, end: 375 },
     launching_9:{ start: 375, end: 405 },
-
     landing_0:  { start: 405, end: 420 },
     launching_0:{ start: 420, end: 450 },
-
     shuffle_1:  { start: 450, end: 480 },
     shuffle_2:  { start: 480, end: 510 }
 };
-
-
 const timestep = 1000 / 60;
 const maxFPS = 60;
-
 let delta = 0;
 let lastFrameTimeMs = 0;
-
-// Whether the shuffle button is currently being held down.
-// While true, draw() stops syncing digits to the real clock time so the
-// shuffle animation isn't interrupted every frame.
 let isShuffling = false;
-
-// displayedValue = the number currently shown on the face
-// targetValue    = the number we're trying to show
-//
-// phase:
-//   idle       -> sitting on a number
-//   launching  -> moving from displayedValue into the air
-//   landing    -> moving from the air onto targetValue
-//   shuffling  -> looping in the air while the shake button is held
-//
-// frame = the exact frame currently being rendered
-
 const getSequence = (name) => {
     return MAP_SEQNS[name];
 };
-
 const getFaceFrame = (value) => {
     return getSequence(`landing_${value}`).end;
 };
-
 const getAirFrame = (value) => {
     return getSequence(`launching_${value}`).end;
 };
-
 const createDigitState = () => {
     const initialValue = 0;
-
     return {
         displayedValue: initialValue,
         targetValue: initialValue,
-
         seqName: null,
         frame: getFaceFrame(initialValue),
-
         phase: 'idle',
     };
 };
-
 const digitState = {
     dig_1: createDigitState(),
     dig_2: createDigitState(),
     dig_3: createDigitState(),
     dig_4: createDigitState(),
 };
-
 const setDigitTarget = (id, value) => {
     const state = digitState[id];
-
     if (state.displayedValue === value) {
         return;
     }
-
     if (state.targetValue === value && state.phase !== 'idle') {
         return;
     }
-
     state.targetValue = value;
-
     state.seqName = `launching_${state.displayedValue}`;
     state.frame = getSequence(state.seqName).start;
     state.phase = 'launching';
 };
-
-// Send a digit into the air on its way to landing on `targetVal`.
 const beginLanding = (state, targetVal) => {
     state.targetValue = targetVal;
     state.seqName = `landing_${targetVal}`;
     state.frame = getSequence(state.seqName).start;
     state.phase = 'landing';
 };
-
 const updateDigit = (id, state) => {
     if (state.phase === 'idle') {
         return;
     }
-
     const sequence = getSequence(state.seqName);
-
-    // Advance through the current sequence.
     if (state.frame < sequence.end) {
         state.frame++;
         return;
     }
-
     if (state.phase === 'launching') {
         if (isShuffling) {
-            // Button is still held once the launch finishes -> start looping.
             state.seqName = pickRandomShuffleSeq();
             state.frame = getSequence(state.seqName).start;
             state.phase = 'shuffling';
         } else {
-            // Button was already released by the time the launch finished
-            // (e.g. a quick tap) -> go straight to landing on the real digit.
             beginLanding(state, getCurrentTimeDigits()[id]);
         }
         return;
     }
-
     if (state.phase === 'shuffling') {
         if (!isShuffling) {
-            // Button released -> land on the real current time digit.
             beginLanding(state, getCurrentTimeDigits()[id]);
             return;
         }
-
-        // Still held -> keep looping through the shuffle sequences.
         state.seqName = pickRandomShuffleSeq();
         state.frame = getSequence(state.seqName).start;
         return;
     }
-
     if (state.phase === 'landing') {
         state.displayedValue = state.targetValue;
         state.frame = getFaceFrame(state.targetValue);
         state.seqName = null;
         state.phase = 'idle';
-
         if (isShuffling) {
-            // A normal clock-tick landing just finished while the button
-            // is still held (rare timing edge case) - go straight into
-            // the shuffle loop instead of sitting idle.
             state.seqName = `launching_${state.displayedValue}`;
             state.frame = getSequence(state.seqName).start;
             state.phase = 'launching';
         }
     }
 };
-
 const update = () => {
     for (const id in digitState) {
         updateDigit(id, digitState[id]);
     }
 };
-
 const padFrame = (frame) => {
     return String(frame).padStart(4, '0');
 };
-
 const renderDigit = (id) => {
     const state = digitState[id];
     const img = document.querySelector(`#${id} .digitImg`);
-
     img.src = `../images/${padFrame(state.frame)}.png`;
 };
-
 const getTime = () => {
     return new Date()
         .toLocaleString('en-US', { hour12: true })
         .slice(9, 25);
 };
-
 const parseTimeToDigits = (time) => {
     return time.split('').map(char => char === ' ' ? 0 : Number(char));
 };
-
 const displayPositions = (dig0, dig1, dig2, dig3) => {
     setDigitTarget('dig_1', dig0);
     setDigitTarget('dig_2', dig1);
     setDigitTarget('dig_3', dig2);
     setDigitTarget('dig_4', dig3);
 };
-
-// Maps each digit id to the value it should actually be showing right now.
 const getCurrentTimeDigits = () => {
     const time = getTime();
     const [dig0, dig1, , dig2, dig3] = parseTimeToDigits(time);
-
     return { dig_1: dig0, dig_2: dig1, dig_3: dig2, dig_4: dig3 };
 };
-
-// Randomly choose one of the two shuffle sequences.
 const pickRandomShuffleSeq = () => {
     return Math.random() < 0.5 ? 'shuffle_1' : 'shuffle_2';
 };
-
-// Send every digit up through its launch animation. Once each digit's
-// launch finishes, updateDigit() checks isShuffling and drops it into the
-// shuffle loop (or straight to landing, if the button was already released).
 const startShuffle = () => {
     if (isShuffling) {
         return;
     }
-
     isShuffling = true;
-
     for (const id in digitState) {
         const state = digitState[id];
-
         if (state.phase === 'idle') {
             state.seqName = `launching_${state.displayedValue}`;
             state.frame = getSequence(state.seqName).start;
             state.phase = 'launching';
         }
-        // If a digit is already mid-animation (e.g. a normal clock tick was
-        // playing when the button was pressed), just leave it running -
-        // updateDigit() will pick it up into the shuffle once it's done.
     }
 };
-
-// Just flip the flag off. updateDigit() sees this on each digit's next
-// check and lands it on the real current time value once its current
-// launch/shuffle segment finishes - no need to touch state here directly.
 const stopShuffle = () => {
     isShuffling = false;
 };
-
 const draw = () => {
     const time = getTime();
     document.getElementById('time').innerHTML = time;
-
-    // Only sync digits to the real time while we're not mid-shuffle, so
-    // holding the button doesn't get fought over by the clock tick.
     if (!isShuffling) {
         const [dig0, dig1, , dig2, dig3] = parseTimeToDigits(time);
         displayPositions(dig0, dig1, dig2, dig3);
     }
-
     for (const id of ['dig_1', 'dig_2', 'dig_3', 'dig_4']) {
         renderDigit(id);
     }
 };
-
 const mainLoop = (timestamp) => {
     if (timestamp < lastFrameTimeMs + (1000 / maxFPS)) {
         requestAnimationFrame(mainLoop);
         return;
     }
-
     delta += timestamp - lastFrameTimeMs;
     lastFrameTimeMs = timestamp;
-
     let numUpdateSteps = 0;
-
     while (delta >= timestep) {
         update();
         delta -= timestep;
-
         if (++numUpdateSteps >= 240) {
             break;
         }
     }
-
     draw();
-
     requestAnimationFrame(mainLoop);
 };
-
-
 requestAnimationFrame(mainLoop);
-
 const shakeButton = document.getElementById("shakeMe");
-
-// Mouse (desktop)
 shakeButton.addEventListener("mousedown", () => {
     shakeButton.classList.add('active');
     startShuffle();
@@ -378,13 +271,10 @@ shakeButton.addEventListener("mouseup", () => {
     shakeButton.classList.remove('active');
     stopShuffle();
 });
-// Stop shuffling if the cursor drags off the button while still held down.
 shakeButton.addEventListener("mouseleave", () => {
     shakeButton.classList.remove('active');
     stopShuffle();
 });
-
-// Touch (mobile)
 shakeButton.addEventListener("touchstart", (e) => {
     e.preventDefault();
     shakeButton.classList.add('active');
@@ -399,5 +289,4 @@ shakeButton.addEventListener("touchcancel", () => {
     shakeButton.classList.remove('active');
     stopShuffle();
 });
-
 </script>
